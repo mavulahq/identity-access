@@ -27,3 +27,42 @@ test('authentication derives roles from the durable membership only', async () =
   assert.deepEqual(identity.roles, ['auditor']);
   assert.deepEqual(identity.permissions, ['finance.read', 'audit.read']);
 });
+
+test('service identity requires a matching active institution binding', async () => {
+  const prisma = {
+    oAuthClient: {
+      findUnique: async () => ({
+        id: 'workbench',
+        status: 'ACTIVE',
+        tenantBindings: [{ tenant_id: 'tenant-1', institution_id: 'institution-1' }],
+        permissions: ['internal.worker'],
+      }),
+    },
+    institution: {
+      findFirst: async ({ where }: any) => where.id === 'institution-1' && where.tenantId === 'tenant-1'
+        ? { id: 'institution-1' }
+        : null,
+    },
+  };
+  const service = new IdentityService(prisma as never);
+
+  assert.equal((await service.findClientIdentity('workbench', 'tenant-1'))?.institutionId, 'institution-1');
+  assert.equal(await service.findClientIdentity('workbench', 'tenant-2'), undefined);
+});
+
+test('service identity rejects a stale tenant-institution pair', async () => {
+  const prisma = {
+    oAuthClient: {
+      findUnique: async () => ({
+        id: 'workbench',
+        status: 'ACTIVE',
+        tenantBindings: [{ tenant_id: 'tenant-1', institution_id: 'institution-stale' }],
+        permissions: ['internal.worker'],
+      }),
+    },
+    institution: { findFirst: async () => null },
+  };
+  const service = new IdentityService(prisma as never);
+
+  assert.equal(await service.findClientIdentity('workbench', 'tenant-1'), undefined);
+});
