@@ -11,6 +11,8 @@ const required = [
   'Dockerfile',
   'LICENSE',
   'README.md',
+  'contracts/openapi/identity-access.public.v1.yaml',
+  'scripts/check-openapi.mjs',
   'prisma/schema.prisma',
   'src/oidc.provider.ts',
   'src/login-rate-limiter.ts',
