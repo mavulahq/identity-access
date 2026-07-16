@@ -86,6 +86,16 @@ export class IdentityService {
       ? bindings.find(({ tenant_id }) => tenant_id === requestedTenantId)
       : bindings.length === 1 ? bindings[0] : undefined;
     if (!binding) return undefined;
+    const institution = await this.prisma.institution.findFirst({
+      where: {
+        id: binding.institution_id,
+        tenantId: binding.tenant_id,
+        status: 'ACTIVE',
+        ...(binding.branch_id ? { branches: { some: { id: binding.branch_id, status: 'ACTIVE' } } } : {}),
+      },
+      select: { id: true },
+    });
+    if (!institution) return undefined;
     return {
       subject: `client:${client.id}`,
       accountId: `client:${client.id}`,
