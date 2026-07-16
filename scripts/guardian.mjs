@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { enforceLocalAgentPolicy } from './check-agent-policy.mjs';
 
 const failures = [];
+failures.push(...enforceLocalAgentPolicy());
 const required = [
   '.github/CODEOWNERS',
   '.github/PULL_REQUEST_TEMPLATE.md',
