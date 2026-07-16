@@ -2,47 +2,98 @@ openapi: 3.1.0
 info:
   title: MAVULA Identity Access API
   version: 1.0.0
-  description: Institutional OAuth 2.0 and OpenID Connect authorization surface.
-  license: { name: GNU Affero General Public License v3.0 only, identifier: AGPL-3.0-only }
+  description: |
+    Institutional OAuth 2.0 and OpenID Connect authorization surface.
+    Tokens carry effective tenant, institution, branch, role, and permission claims derived from persisted identity state.
+  license:
+    name: GNU Affero General Public License v3.0 only
+    identifier: AGPL-3.0-only
 servers:
   - url: https://identity.mavula.dev
+    description: Identity Access public endpoint
+tags:
+  - name: Discovery
+    description: OpenID Provider metadata and signing keys.
+  - name: OAuth2
+    description: Authorization, token exchange, refresh, service credentials, and revocation.
+  - name: Identity
+    description: Effective authenticated operator or service identity.
 security: []
 paths:
   /.well-known/openid-configuration:
     get:
       operationId: getOpenIdConfiguration
+      summary: Read OpenID Provider metadata
+      description: Discover issuer endpoints, supported grants, claims, scopes, and signing algorithms.
       tags: [Discovery]
       responses:
-        '200': { description: OpenID Provider metadata }
+        '200':
+          description: OpenID Provider metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpenIdConfiguration' }
+              example:
+                issuer: https://identity.mavula.dev
+                authorization_endpoint: https://identity.mavula.dev/auth
+                token_endpoint: https://identity.mavula.dev/token
+                jwks_uri: https://identity.mavula.dev/jwks
+                revocation_endpoint: https://identity.mavula.dev/token/revocation
+                response_types_supported: [code]
+                grant_types_supported: [authorization_code, refresh_token, client_credentials]
+                token_endpoint_auth_methods_supported: [client_secret_basic, client_secret_post]
+                id_token_signing_alg_values_supported: [PS256]
   /jwks:
     get:
       operationId: getJsonWebKeySet
+      summary: Read public signing keys
+      description: Retrieve the PS256 public keys used by MAVULA resource servers to verify access tokens.
       tags: [Discovery]
       responses:
-        '200': { description: Public PS256 signing keys }
+        '200':
+          description: Public JSON Web Key Set
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JsonWebKeySet' }
   /auth:
     get:
       operationId: authorize
+      summary: Start operator authorization
+      description: Start Authorization Code with PKCE. The user agent follows the resulting interaction and redirect flow.
       tags: [OAuth2]
       parameters:
-        - { in: query, name: client_id, required: true, schema: { type: string } }
-        - { in: query, name: redirect_uri, required: true, schema: { type: string, format: uri } }
+        - { in: query, name: client_id, required: true, description: Registered public client identifier., schema: { type: string } }
+        - { in: query, name: redirect_uri, required: true, description: Exact registered callback URI., schema: { type: string, format: uri } }
         - { in: query, name: response_type, required: true, schema: { const: code } }
-        - { in: query, name: scope, required: true, schema: { type: string } }
-        - { in: query, name: state, required: true, schema: { type: string } }
+        - { in: query, name: scope, required: true, description: Space-delimited scopes including openid., schema: { type: string, example: 'openid profile finance.read' } }
+        - { in: query, name: state, required: true, description: Opaque client value used to prevent request forgery., schema: { type: string, minLength: 16 } }
         - { in: query, name: code_challenge, required: true, schema: { type: string } }
         - { in: query, name: code_challenge_method, required: true, schema: { const: S256 } }
       responses:
-        '302': { description: Authorization redirect }
+        '302':
+          description: Redirect to the operator interaction or registered callback URI
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '400': { $ref: '#/components/responses/OAuthError' }
   /token:
     post:
       operationId: exchangeToken
+      summary: Exchange credentials for tokens
+      description: Exchange an authorization code, refresh token, or service client credentials for an access token.
       tags: [OAuth2]
       requestBody:
         required: true
         content:
           application/x-www-form-urlencoded:
-            schema: { type: object, additionalProperties: true }
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/AuthorizationCodeTokenRequest'
+                - $ref: '#/components/schemas/RefreshTokenRequest'
+                - $ref: '#/components/schemas/ClientCredentialsTokenRequest'
+            examples:
+              authorization_code:
+                value: { grant_type: authorization_code, code: auth_code_value, redirect_uri: 'https://app.example/callback', code_verifier: pkce_verifier }
+              client_credentials:
+                value: { grant_type: client_credentials, client_id: service_client, client_secret: redacted, scope: internal.worker }
       responses:
         '200':
           description: OAuth token response
@@ -50,24 +101,44 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TokenResponse' }
         '400': { $ref: '#/components/responses/OAuthError' }
+        '401': { $ref: '#/components/responses/OAuthError' }
   /token/revocation:
     post:
       operationId: revokeToken
+      summary: Revoke a token
+      description: Revoke an access or refresh token. A successful response does not disclose whether the token existed.
       tags: [OAuth2]
       requestBody:
         required: true
         content:
           application/x-www-form-urlencoded:
-            schema: { type: object, required: [token], properties: { token: { type: string } } }
+            schema: { $ref: '#/components/schemas/RevokeTokenRequest' }
+            example: { token: refresh_token_value, token_type_hint: refresh_token }
       responses:
         '200': { description: Revocation accepted }
+        '400': { $ref: '#/components/responses/OAuthError' }
+        '401': { $ref: '#/components/responses/OAuthError' }
   /api/v1/me:
     get:
       operationId: getEffectiveOperatorIdentity
+      summary: Read effective identity
+      description: Return the trusted tenant, institution, branch, roles, and permissions carried by the current access token.
       tags: [Identity]
-      security: [{ bearerAuth: [] }]
+      security: [{ oauth2: [profile] }, { bearerAuth: [] }]
       responses:
-        '200': { description: 'Effective tenant, institution, branch, roles and permissions' }
+        '200':
+          description: Effective identity
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EffectiveIdentity' }
+              example:
+                sub: operator_01
+                tenant_id: tenant_01
+                institution_id: institution_01
+                branch_id: branch_maputo
+                roles: [operations_maker]
+                permissions: [finance.read, finance.write, workbench.read, workbench.jobs.write]
+                client_id: institutional_portal
         '401': { $ref: '#/components/responses/Unauthorized' }
 components:
   securitySchemes:
@@ -78,20 +149,132 @@ components:
         authorizationCode:
           authorizationUrl: /auth
           tokenUrl: /token
-          scopes: { openid: Authenticate operator, profile: Read effective identity }
+          refreshUrl: /token
+          scopes:
+            openid: Authenticate an operator.
+            profile: Read effective identity claims.
+            finance.read: Read tenant-scoped financial resources.
         clientCredentials:
           tokenUrl: /token
-          scopes: { internal.worker: Invoke protected service callbacks }
+          scopes:
+            internal.worker: Invoke protected service callbacks.
   schemas:
+    OpenIdConfiguration:
+      type: object
+      required: [issuer, authorization_endpoint, token_endpoint, jwks_uri, response_types_supported]
+      properties:
+        issuer: { type: string, format: uri }
+        authorization_endpoint: { type: string, format: uri }
+        token_endpoint: { type: string, format: uri }
+        jwks_uri: { type: string, format: uri }
+        revocation_endpoint: { type: string, format: uri }
+        response_types_supported: { type: array, items: { type: string } }
+        grant_types_supported: { type: array, items: { type: string } }
+        token_endpoint_auth_methods_supported: { type: array, items: { type: string } }
+        id_token_signing_alg_values_supported: { type: array, items: { type: string } }
+      additionalProperties: true
+    JsonWebKeySet:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            required: [kty, kid, use, alg]
+            properties:
+              kty: { type: string }
+              kid: { type: string }
+              use: { type: string, const: sig }
+              alg: { type: string, const: PS256 }
+              n: { type: string }
+              e: { type: string }
+    AuthorizationCodeTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [grant_type, code, redirect_uri, code_verifier]
+      properties:
+        grant_type: { const: authorization_code }
+        code: { type: string }
+        redirect_uri: { type: string, format: uri }
+        code_verifier: { type: string }
+        client_id: { type: string }
+    RefreshTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [grant_type, refresh_token]
+      properties:
+        grant_type: { const: refresh_token }
+        refresh_token: { type: string }
+        client_id: { type: string }
+        scope: { type: string }
+    ClientCredentialsTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [grant_type]
+      properties:
+        grant_type: { const: client_credentials }
+        client_id: { type: string }
+        client_secret: { type: string, format: password }
+        scope: { type: string }
+    RevokeTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { type: string }
+        token_type_hint: { type: string, enum: [access_token, refresh_token] }
+        client_id: { type: string }
+        client_secret: { type: string, format: password }
     TokenResponse:
       type: object
       required: [access_token, token_type, expires_in]
       properties:
         access_token: { type: string }
         token_type: { const: Bearer }
-        expires_in: { type: integer }
+        expires_in: { type: integer, minimum: 1 }
+        id_token: { type: string }
         refresh_token: { type: string }
         scope: { type: string }
+    EffectiveIdentity:
+      type: object
+      additionalProperties: false
+      required: [sub, tenant_id, institution_id, roles, permissions]
+      properties:
+        sub: { type: string }
+        tenant_id: { type: string }
+        institution_id: { type: string }
+        branch_id: { type: string }
+        roles:
+          type: array
+          items: { type: string, enum: [institution_admin, operations_maker, operations_checker, compliance_officer, auditor] }
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [finance.read, finance.write, finance.approve, configuration.write, compliance.manage, audit.read, identity.admin, workbench.read, workbench.jobs.write, observability.read, internal.worker]
+        client_id: { type: string }
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        error_description: { type: string }
+        error_uri: { type: string, format: uri }
+    HttpError:
+      type: object
+      required: [statusCode, message]
+      properties:
+        statusCode: { type: integer }
+        message:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        error: { type: string }
   responses:
-    OAuthError: { description: OAuth 2.0 error response }
-    Unauthorized: { description: Bearer token is missing or invalid }
+    OAuthError:
+      description: OAuth 2.0 protocol error
+      content: { application/json: { schema: { $ref: '#/components/schemas/OAuthError' } } }
+    Unauthorized:
+      description: Bearer token is missing, expired, invalid, or issued for a different audience
+      content: { application/json: { schema: { $ref: '#/components/schemas/HttpError' } } }
