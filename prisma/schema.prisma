@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Institution {
+  id          String       @id
+  tenantId    String       @unique
+  legalName   String
+  status      String       @default("ACTIVE")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  branches    Branch[]
+  memberships Membership[]
+
+  @@map("institutions")
+}
+
+model Branch {
+  id            String      @id
+  institutionId String
+  name          String
+  status        String      @default("ACTIVE")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  memberships   Membership[]
+
+  @@unique([institutionId, name])
+  @@index([institutionId])
+  @@map("branches")
+}
+
+model Operator {
+  id           String               @id @default(cuid())
+  email        String               @unique
+  displayName  String
+  status       String               @default("ACTIVE")
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  credential   OperatorCredential?
+  memberships  Membership[]
+
+  @@map("operators")
+}
+
+model OperatorCredential {
+  operatorId       String   @id
+  passwordHash     String
+  passwordChangedAt DateTime @default(now())
+  operator         Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@map("operator_credentials")
+}
+
+model Membership {
+  id            String           @id @default(cuid())
+  operatorId    String
+  institutionId String
+  branchId      String?
+  status        String           @default("ACTIVE")
+  createdAt     DateTime         @default(now())
+  operator      Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  institution   Institution      @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  branch        Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  roles         RoleAssignment[]
+
+  @@unique([operatorId, institutionId, branchId])
+  @@index([institutionId])
+  @@map("memberships")
+}
+
+model RoleAssignment {
+  id           String     @id @default(cuid())
+  membershipId String
+  role         String
+  createdAt    DateTime   @default(now())
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, role])
+  @@map("role_assignments")
+}
+
+model OAuthClient {
+  id                      String   @id
+  name                    String
+  status                  String   @default("ACTIVE")
+  redirectUris            Json
+  grantTypes              Json
+  responseTypes           Json
+  tokenEndpointAuthMethod String
+  jwks                    Json?
+  tenantBindings          Json
+  permissions             Json
+  resourceAudiences       Json
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("oauth_clients")
+}
+
+model OidcArtifact {
+  model      String
+  id         String
+  payload    Json
+  grantId    String?
+  userCode   String?
+  uid        String?
+  expiresAt  DateTime?
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@id([model, id])
+  @@index([grantId])
+  @@index([userCode])
+  @@index([uid])
+  @@index([expiresAt])
+  @@map("oidc_artifacts")
+}
+
+model IdentityAuditEvent {
+  id            String   @id @default(cuid())
+  action        String
+  result        String
+  operatorId    String?
+  clientId      String?
+  institutionId String?
+  tenantId      String?
+  correlationId String?
+  metadata      Json
+  createdAt     DateTime @default(now())
+
+  @@index([institutionId, createdAt])
+  @@index([operatorId, createdAt])
+  @@map("identity_audit_events")
+}

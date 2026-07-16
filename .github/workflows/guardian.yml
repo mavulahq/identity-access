@@ -1,0 +1,50 @@
+name: MAVULA Guardian
+
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: identity-access-guardian-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guardian:
+    name: guardian
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mavula
+          POSTGRES_PASSWORD: mavula_dev
+          POSTGRES_DB: mavula
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U mavula -d mavula" --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      DATABASE_URL: postgresql://mavula:mavula_dev@127.0.0.1:5432/mavula?schema=identity
+      IDENTITY_ISSUER: http://localhost:3020
+      IDENTITY_COOKIE_KEYS: guardian-cookie-key-000000000000001,guardian-cookie-key-000000000000002
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.22.3
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate test signing key
+        run: |
+          node --input-type=module -e "import {generateKeyPair,exportJWK} from 'jose'; const {privateKey}=await generateKeyPair('PS256',{modulusLength:2048,extractable:true}); const key=await exportJWK(privateKey); key.use='sig'; key.alg='PS256'; key.kid='guardian'; process.stdout.write('IDENTITY_JWKS_JSON='+JSON.stringify({keys:[key]})+'\n')" >> "$GITHUB_ENV"
+      - run: pnpm guardian:check
+      - run: pnpm prisma migrate deploy
+      - run: pnpm build
+      - run: pnpm test
