@@ -26,6 +26,7 @@ test('publishes OIDC discovery and a public JWKS with PKCE and revocation', asyn
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
       resource_audiences: ['urn:mavula:identity-access'],
+      permissions: ['finance.read'],
     }],
   };
   const provider = await createOidcProvider({} as never, identities as never);

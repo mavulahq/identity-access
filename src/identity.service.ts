@@ -20,13 +20,20 @@ interface TenantBinding {
 export class IdentityService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async authenticate(email: string, password: string, institutionId?: string): Promise<EffectiveIdentity> {
+  async authenticate(email: string, password: string, institutionId?: string, branchId?: string): Promise<EffectiveIdentity> {
     const operator = await this.prisma.operator.findUnique({
       where: { email: email.trim().toLowerCase() },
       include: {
         credential: true,
         memberships: {
-          where: { status: 'ACTIVE', ...(institutionId ? { institutionId } : {}) },
+          where: {
+            status: 'ACTIVE',
+            institution: { status: 'ACTIVE' },
+            ...(institutionId ? { institutionId } : {}),
+            ...(branchId ? { branchId, branch: { status: 'ACTIVE' } } : {
+              OR: [{ branchId: null }, { branch: { status: 'ACTIVE' } }],
+            }),
+          },
           include: { institution: true, branch: true, roles: true },
         },
       },
@@ -40,7 +47,9 @@ export class IdentityService {
     if (!valid || !operator) throw new UnauthorizedException('Invalid credentials');
     if (operator.memberships.length !== 1) {
       throw new UnauthorizedException(
-        operator.memberships.length === 0 ? 'No active institutional membership' : 'institution_id is required',
+        operator.memberships.length === 0
+          ? 'No active institutional membership'
+          : institutionId ? 'branch_id is required' : 'institution_id is required',
       );
     }
     const membership = operator.memberships[0];
@@ -62,7 +71,14 @@ export class IdentityService {
     const [operatorId, membershipId] = accountId.split('|');
     if (!operatorId || !membershipId) return undefined;
     const membership = await this.prisma.membership.findFirst({
-      where: { id: membershipId, operatorId, status: 'ACTIVE', operator: { status: 'ACTIVE' } },
+      where: {
+        id: membershipId,
+        operatorId,
+        status: 'ACTIVE',
+        operator: { status: 'ACTIVE' },
+        institution: { status: 'ACTIVE' },
+        OR: [{ branchId: null }, { branch: { status: 'ACTIVE' } }],
+      },
       include: { institution: true, branch: true, roles: true, operator: true },
     });
     if (!membership) return undefined;
@@ -110,6 +126,29 @@ export class IdentityService {
     };
   }
 
+  async resolveTokenIdentity(
+    clientId: string,
+    accountId?: string,
+    requestedTenantId?: string,
+  ): Promise<{ identity: EffectiveIdentity; clientPermissions: AccessPermission[] } | undefined> {
+    const client = await this.prisma.oAuthClient.findUnique({ where: { id: clientId } });
+    if (!client || client.status !== 'ACTIVE') return undefined;
+    const clientPermissions = this.array<string>(client.permissions).filter(
+      (permission): permission is AccessPermission => ACCESS_PERMISSIONS.includes(permission as AccessPermission),
+    );
+    if (!accountId) {
+      const identity = await this.findClientIdentity(clientId, requestedTenantId);
+      return identity ? { identity, clientPermissions } : undefined;
+    }
+    const identity = await this.findOperatorIdentity(accountId);
+    if (!identity || (requestedTenantId && requestedTenantId !== identity.tenantId)) return undefined;
+    const binding = this.array<TenantBinding>(client.tenantBindings).find((candidate) =>
+      candidate.tenant_id === identity.tenantId
+      && candidate.institution_id === identity.institutionId
+      && (!candidate.branch_id || candidate.branch_id === identity.branchId));
+    return binding ? { identity, clientPermissions } : undefined;
+  }
+
   async providerClients() {
     const clients = await this.prisma.oAuthClient.findMany({ where: { status: 'ACTIVE' } });
     return clients.map((client) => this.providerClient(client));
@@ -144,6 +183,7 @@ export class IdentityService {
       token_endpoint_auth_method: client.tokenEndpointAuthMethod,
       jwks: client.jwks || undefined,
       resource_audiences: this.array<string>(client.resourceAudiences),
+      permissions: this.array<string>(client.permissions),
     };
   }
 

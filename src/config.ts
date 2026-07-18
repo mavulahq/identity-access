@@ -6,7 +6,9 @@ export interface IdentityConfig {
   jwks: JSONWebKeySet;
   cookieKeys: string[];
   resourceAudiences: string[];
+  identityAudience: string;
   secureCookies: boolean;
+  trustProxyHops: number;
 }
 
 function required(name: string): string {
@@ -40,6 +42,10 @@ export function getIdentityConfig(): IdentityConfig {
   if (cookieKeys.length < 2 || cookieKeys.some((value) => value.length < 32)) {
     throw new Error('IDENTITY_COOKIE_KEYS must contain at least two keys of 32 characters');
   }
+  const trustProxyHops = Number(process.env.IDENTITY_TRUST_PROXY_HOPS || 0);
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 10) {
+    throw new Error('IDENTITY_TRUST_PROXY_HOPS must be an integer between 0 and 10');
+  }
   return {
     port: Number(process.env.PORT || 3020),
     issuer,
@@ -50,6 +56,8 @@ export function getIdentityConfig(): IdentityConfig {
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean),
+    identityAudience: process.env.IDENTITY_AUDIENCE || 'urn:mavula:identity-access',
     secureCookies: issuer.startsWith('https://'),
+    trustProxyHops,
   };
 }

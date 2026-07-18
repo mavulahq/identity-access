@@ -38,6 +38,7 @@ export class InteractionController {
           <label>Email<input name="email" type="email" autocomplete="username" required></label>
           <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
           <label>Institution ID<input name="institution_id" autocomplete="organization"></label>
+          <label>Branch ID<input name="branch_id" autocomplete="organization"></label>
           <button type="submit">Sign in</button>
         </form>`));
     }
@@ -62,6 +63,7 @@ export class InteractionController {
         email,
         body.password || '',
         body.institution_id || undefined,
+        body.branch_id || undefined,
       ).catch((error) => {
         this.loginRateLimiter.recordFailure(attemptKey);
         throw error;

@@ -28,7 +28,7 @@ export class AccessGuard implements CanActivate {
     try {
       const { payload } = await jwtVerify(header.slice(7), this.jwks, {
         issuer: this.config.issuer,
-        audience: this.config.resourceAudiences,
+        audience: this.config.identityAudience,
         algorithms: ['PS256'],
         typ: 'at+jwt',
       });
