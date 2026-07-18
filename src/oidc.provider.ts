@@ -25,6 +25,9 @@ export async function createOidcProvider(prisma: PrismaService, identities: Iden
     },
     scopes: ['openid', 'profile', ...ACCESS_PERMISSIONS],
     responseTypes: ['code'],
+    clientDefaults: {
+      id_token_signed_response_alg: 'PS256',
+    },
     clientAuthMethods: ['none', 'private_key_jwt'],
     extraClientMetadata: {
       properties: ['resource_audiences'],
