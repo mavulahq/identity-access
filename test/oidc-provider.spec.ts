@@ -18,8 +18,19 @@ test('publishes OIDC discovery and a public JWKS with PKCE and revocation', asyn
   process.env.IDENTITY_JWKS_JSON = JSON.stringify({ keys: [{ ...jwk, alg: 'PS256', use: 'sig', kid: 'test-key' }] });
   process.env.IDENTITY_COOKIE_KEYS = `${'a'.repeat(32)},${'b'.repeat(32)}`;
 
-  const identities = { providerClients: async () => [] };
+  const identities = {
+    providerClients: async () => [{
+      client_id: 'operator-client',
+      redirect_uris: ['https://operator.example.test/callback'],
+      grant_types: ['authorization_code'],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'none',
+      resource_audiences: ['urn:mavula:identity-access'],
+    }],
+  };
   const provider = await createOidcProvider({} as never, identities as never);
+  const client = await provider.Client.find('operator-client');
+  assert.equal(client?.idTokenSignedResponseAlg, 'PS256');
   const server = createServer(provider.callback());
   await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
   try {
