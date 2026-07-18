@@ -35,6 +35,8 @@ for (const file of tracked.stdout.split('\n').filter(Boolean)) {
   }
   if (/BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY/.test(content)) failures.push(`${file} contains private key material`);
 }
+const openapi = spawnSync(process.execPath, ['scripts/check-openapi.mjs'], { encoding: 'utf8' });
+if (openapi.status !== 0) failures.push(`openapi check failed: ${(openapi.stderr || openapi.stdout).trim()}`);
 if (failures.length) {
   console.error('MAVULA identity-access guardian failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));

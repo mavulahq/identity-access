@@ -30,10 +30,11 @@ export async function createOidcProvider(prisma: PrismaService, identities: Iden
     },
     clientAuthMethods: ['none', 'private_key_jwt'],
     extraClientMetadata: {
-      properties: ['resource_audiences'],
+      properties: ['resource_audiences', 'permissions'],
       validator(_ctx, key, value) {
-        if (key === 'resource_audiences' && (!Array.isArray(value) || value.some((item) => typeof item !== 'string'))) {
-          throw new errors.InvalidClientMetadata('resource_audiences must be an array of strings');
+        if ((key === 'resource_audiences' || key === 'permissions')
+          && (!Array.isArray(value) || value.some((item) => typeof item !== 'string'))) {
+          throw new errors.InvalidClientMetadata(`${key} must be an array of strings`);
         }
       },
     },
@@ -62,8 +63,9 @@ export async function createOidcProvider(prisma: PrismaService, identities: Iden
           if (!allowed?.includes(resource) || !config.resourceAudiences.includes(resource)) {
             throw new errors.InvalidTarget('resource is not registered for this client');
           }
+          const clientPermissions = (client.permissions as string[] | undefined) || [];
           return {
-            scope: ACCESS_PERMISSIONS.join(' '),
+            scope: ACCESS_PERMISSIONS.filter((permission) => clientPermissions.includes(permission)).join(' '),
             audience: resource,
             accessTokenTTL: 300,
             accessTokenFormat: 'jwt',
@@ -110,15 +112,17 @@ export async function createOidcProvider(prisma: PrismaService, identities: Iden
       };
     },
     extraTokenClaims: async (ctx, token) => {
-      const identity = 'accountId' in token && token.accountId
-        ? await identities.findOperatorIdentity(token.accountId)
-        : await identities.findClientIdentity(
-            token.clientId!,
-            typeof ctx.oidc.params?.tenant_id === 'string' ? ctx.oidc.params.tenant_id : undefined,
-          );
-      if (!identity) throw new errors.InvalidGrant('identity context is unavailable');
+      const resolved = await identities.resolveTokenIdentity(
+        token.clientId!,
+        'accountId' in token && token.accountId ? token.accountId : undefined,
+        typeof ctx.oidc.params?.tenant_id === 'string' ? ctx.oidc.params.tenant_id : undefined,
+      );
+      if (!resolved) throw new errors.InvalidGrant('identity context is unavailable');
+      const { identity, clientPermissions } = resolved;
       const requested = new Set((token.scope || '').split(' '));
-      const permissions = identity.permissions.filter((permission) => requested.has(permission));
+      const permissions = identity.permissions.filter(
+        (permission) => requested.has(permission) && clientPermissions.includes(permission),
+      );
       return {
         sub: identity.subject,
         tenant_id: identity.tenantId,
@@ -133,6 +137,6 @@ export async function createOidcProvider(prisma: PrismaService, identities: Iden
       client.grantTypeAllowed('refresh_token') && ctx.oidc.entities.AuthorizationCode !== undefined,
   };
   const provider = new Provider(config.issuer, providerConfig);
-  provider.proxy = process.env.NODE_ENV === 'production';
+  provider.proxy = config.trustProxyHops > 0;
   return provider;
 }

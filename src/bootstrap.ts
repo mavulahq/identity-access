@@ -1,5 +1,6 @@
 import { hash } from 'argon2';
 import { PrismaClient, type Prisma } from '../generated/prisma/index.js';
+import { pathToFileURL } from 'node:url';
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -47,14 +48,18 @@ async function main() {
     for (const client of clients) {
       const id = String(client.id || '');
       if (!id) throw new Error('bootstrap client id is required');
+      const grantTypes = stringArray(client.grant_types, `${id}.grant_types`);
+      const tokenEndpointAuthMethod = String(client.token_endpoint_auth_method || 'none');
+      const jwks = client.jwks;
+      assertClientCredentialsSecurity(id, grantTypes, tokenEndpointAuthMethod, jwks);
       const data = {
         name: String(client.name || id),
         status: 'ACTIVE',
         redirectUris: (client.redirect_uris || []) as Prisma.InputJsonValue,
-        grantTypes: (client.grant_types || []) as Prisma.InputJsonValue,
+        grantTypes: grantTypes as Prisma.InputJsonValue,
         responseTypes: (client.response_types || []) as Prisma.InputJsonValue,
-        tokenEndpointAuthMethod: String(client.token_endpoint_auth_method || 'none'),
-        jwks: client.jwks as Prisma.InputJsonValue | undefined,
+        tokenEndpointAuthMethod,
+        jwks: jwks as Prisma.InputJsonValue | undefined,
         tenantBindings: (client.tenant_bindings || []) as Prisma.InputJsonValue,
         permissions: (client.permissions || []) as Prisma.InputJsonValue,
         resourceAudiences: (client.resource_audiences || []) as Prisma.InputJsonValue,
@@ -70,4 +75,39 @@ async function main() {
   }
 }
 
-void main();
+function stringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`${field} must be an array of strings`);
+  }
+  return value;
+}
+
+export function assertClientCredentialsSecurity(
+  clientId: string,
+  grantTypes: string[],
+  tokenEndpointAuthMethod: string,
+  jwks: unknown,
+): void {
+  if (!grantTypes.includes('client_credentials')) return;
+  if (tokenEndpointAuthMethod !== 'private_key_jwt') {
+    throw new Error(`${clientId} client_credentials clients must use private_key_jwt`);
+  }
+  assertPublicClientJwks(jwks, clientId);
+}
+
+function assertPublicClientJwks(value: unknown, clientId: string): void {
+  const keys = value && typeof value === 'object' ? (value as { keys?: unknown }).keys : undefined;
+  if (!Array.isArray(keys) || keys.length === 0 || keys.some((key) => {
+    if (!key || typeof key !== 'object') return true;
+    const jwk = key as Record<string, unknown>;
+    return jwk.kty !== 'RSA' || jwk.alg !== 'PS256' || jwk.use !== 'sig'
+      || typeof jwk.kid !== 'string' || typeof jwk.n !== 'string' || typeof jwk.e !== 'string'
+      || ['d', 'p', 'q', 'dp', 'dq', 'qi'].some((member) => member in jwk);
+  })) {
+    throw new Error(`${clientId}.jwks must contain public RSA PS256 signing keys`);
+  }
+}
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  void main();
+}
