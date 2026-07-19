@@ -46,11 +46,11 @@ export class IdentityService {
     );
     if (!valid || !operator) throw new UnauthorizedException('Invalid credentials');
     if (operator.memberships.length !== 1) {
-      throw new UnauthorizedException(
-        operator.memberships.length === 0
-          ? 'No active institutional membership'
-          : institutionId ? 'branch_id is required' : 'institution_id is required',
-      );
+      const reason = operator.memberships.length === 0
+        ? 'No active institutional membership'
+        : institutionId ? 'branch_id is required' : 'institution_id is required';
+      await this.audit('authentication.login', 'FAILED', { subject: operator.id }, { reason });
+      throw new UnauthorizedException('Invalid credentials');
     }
     const membership = operator.memberships[0];
     const roles = membership.roles.map(({ role }) => role).filter(isInstitutionalRole);

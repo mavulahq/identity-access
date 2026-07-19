@@ -28,6 +28,54 @@ test('authentication derives roles from the durable membership only', async () =
   assert.deepEqual(identity.permissions, ['finance.read', 'audit.read']);
 });
 
+test('authentication hides membership ambiguity behind Invalid credentials', async () => {
+  const passwordHash = await hash('correct horse battery staple', { type: 2 });
+  const audits: Array<{ action: string; result: string; metadata: Record<string, unknown> }> = [];
+  const prisma = {
+    operator: {
+      findUnique: async () => ({
+        id: 'operator-ambiguous',
+        status: 'ACTIVE',
+        credential: { passwordHash },
+        memberships: [
+          {
+            id: 'membership-1',
+            institutionId: 'institution-1',
+            branchId: null,
+            institution: { tenantId: 'tenant-1' },
+            roles: [{ role: 'auditor' }],
+          },
+          {
+            id: 'membership-2',
+            institutionId: 'institution-2',
+            branchId: null,
+            institution: { tenantId: 'tenant-2' },
+            roles: [{ role: 'auditor' }],
+          },
+        ],
+      }),
+    },
+    identityAuditEvent: {
+      create: async ({ data }: any) => {
+        audits.push(data);
+        return data;
+      },
+    },
+  };
+  const service = new IdentityService(prisma as never);
+  await assert.rejects(
+    () => service.authenticate('operator@mavula.io', 'correct horse battery staple'),
+    (error: any) => {
+      assert.equal(error.message, 'Invalid credentials');
+      return true;
+    },
+  );
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].action, 'authentication.login');
+  assert.equal(audits[0].result, 'FAILED');
+  assert.equal(audits[0].metadata.reason, 'institution_id is required');
+});
+
 test('authentication selects an active branch membership explicitly', async () => {
   const passwordHash = await hash('correct horse battery staple', { type: 2 });
   let membershipWhere: any;

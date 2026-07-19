@@ -100,7 +100,7 @@ paths:
                   client_assertion: signed_private_key_jwt
                   resource: urn:mavula:ledger-core
                   tenant_id: tenant_01
-                  scope: internal.worker
+                  scope: finance.read
       responses:
         '200':
           description: OAuth token response
@@ -173,7 +173,7 @@ components:
         clientCredentials:
           tokenUrl: /token
           scopes:
-            internal.worker: Invoke protected service callbacks.
+            finance.read: Read tenant-scoped financial resources.
   schemas:
     OpenIdConfiguration:
       type: object
@@ -280,7 +280,7 @@ components:
           type: array
           items:
             type: string
-            enum: [finance.read, finance.write, finance.approve, configuration.write, compliance.manage, audit.read, identity.admin, workbench.read, workbench.jobs.write, observability.read, internal.worker]
+            enum: [finance.read, finance.write, finance.approve, configuration.write, compliance.manage, audit.read, identity.admin, workbench.read, workbench.jobs.write, observability.read]
         client_id: { type: string }
     OAuthError:
       type: object
