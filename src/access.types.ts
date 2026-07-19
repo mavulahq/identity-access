@@ -20,6 +20,7 @@ export const ACCESS_PERMISSIONS = [
   'workbench.jobs.write',
   'observability.read',
   'internal.worker',
+  'regulatory.export',
 ] as const;
 
 export type AccessPermission = (typeof ACCESS_PERMISSIONS)[number];
