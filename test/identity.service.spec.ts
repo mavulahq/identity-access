@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { hash } from 'argon2';
-import { IdentityService } from '../src/identity.service.js';
+import { IdentityService, tokenEndpointAuthMethodForClient } from '../src/identity.service.js';
 
 test('authentication derives roles from the durable membership only', async () => {
   const passwordHash = await hash('correct horse battery staple', { type: 2 });
@@ -65,4 +65,33 @@ test('service identity rejects a stale tenant-institution pair', async () => {
   const service = new IdentityService(prisma as never);
 
   assert.equal(await service.findClientIdentity('workbench', 'tenant-1'), undefined);
+});
+
+test('client_credentials clients cannot use token endpoint auth method none', () => {
+  assert.equal(tokenEndpointAuthMethodForClient(['client_credentials'], 'none'), 'private_key_jwt');
+  assert.equal(tokenEndpointAuthMethodForClient(['authorization_code'], 'none'), 'none');
+  assert.equal(tokenEndpointAuthMethodForClient(['authorization_code', 'client_credentials']), 'private_key_jwt');
+});
+
+test('provider clients normalize service auth and pin PS256 id tokens', async () => {
+  const prisma = {
+    oAuthClient: {
+      findMany: async () => [{
+        id: 'workbench',
+        name: 'workbench',
+        status: 'ACTIVE',
+        redirectUris: [],
+        grantTypes: ['client_credentials'],
+        responseTypes: [],
+        tokenEndpointAuthMethod: 'none',
+        jwks: { keys: [] },
+        resourceAudiences: ['urn:mavula:ledger-core'],
+      }],
+    },
+  };
+  const service = new IdentityService(prisma as never);
+  const [client] = await service.providerClients();
+  assert.equal(client.token_endpoint_auth_method, 'private_key_jwt');
+  assert.equal(client.id_token_signed_response_alg, 'PS256');
+  assert.deepEqual(client.resource_audiences, ['urn:mavula:ledger-core']);
 });

@@ -4,12 +4,29 @@ import { IdentityService } from './identity.service.js';
 import { prismaAdapterFactory } from './oidc.adapter.js';
 import { PrismaService } from './prisma.service.js';
 import { ACCESS_PERMISSIONS } from './access.types.js';
+import { tokenEndpointAuthMethodForClient } from './identity.service.js';
 
 export const OIDC_PROVIDER = Symbol('OIDC_PROVIDER');
 
+export function clientResourceAudiences(client: object): string[] {
+  const record = client as { resourceAudiences?: unknown; resource_audiences?: unknown };
+  const value = record.resourceAudiences ?? record.resource_audiences;
+  return Array.isArray(value) && value.every((item) => typeof item === 'string') ? value as string[] : [];
+}
+
 export async function createOidcProvider(prisma: PrismaService, identities: IdentityService) {
   const config = getIdentityConfig();
-  const clients = await identities.providerClients();
+  const clients = (await identities.providerClients()).map((client) => {
+    const grantTypes = Array.isArray(client.grant_types) ? client.grant_types.map(String) : [];
+    return {
+      ...client,
+      token_endpoint_auth_method: tokenEndpointAuthMethodForClient(
+        grantTypes,
+        typeof client.token_endpoint_auth_method === 'string' ? client.token_endpoint_auth_method : undefined,
+      ),
+      id_token_signed_response_alg: 'PS256',
+    };
+  });
   const providerConfig: Configuration = {
     adapter: prismaAdapterFactory(prisma),
     clients: clients as unknown as ClientMetadata[],
@@ -25,6 +42,10 @@ export async function createOidcProvider(prisma: PrismaService, identities: Iden
     },
     scopes: ['openid', 'profile', ...ACCESS_PERMISSIONS],
     responseTypes: ['code'],
+    clientDefaults: {
+      id_token_signed_response_alg: 'PS256',
+      token_endpoint_auth_method: 'private_key_jwt',
+    },
     clientAuthMethods: ['none', 'private_key_jwt'],
     extraClientMetadata: {
       properties: ['resource_audiences'],
@@ -51,12 +72,12 @@ export async function createOidcProvider(prisma: PrismaService, identities: Iden
       resourceIndicators: {
         enabled: true,
         defaultResource(_ctx, client) {
-          return (client.resourceAudiences as string[] | undefined)?.[0] || 'urn:mavula:identity-access';
+          return clientResourceAudiences(client)[0] || 'urn:mavula:identity-access';
         },
         useGrantedResource: () => true,
         getResourceServerInfo(_ctx, resource, client) {
-          const allowed = client.resourceAudiences as string[] | undefined;
-          if (!allowed?.includes(resource) || !config.resourceAudiences.includes(resource)) {
+          const allowed = clientResourceAudiences(client);
+          if (!allowed.includes(resource) || !config.resourceAudiences.includes(resource)) {
             throw new errors.InvalidTarget('resource is not registered for this client');
           }
           return {

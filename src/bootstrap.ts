@@ -1,5 +1,6 @@
 import { hash } from 'argon2';
 import { PrismaClient, type Prisma } from '../generated/prisma/index.js';
+import { tokenEndpointAuthMethodForClient } from './identity.service.js';
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -53,7 +54,10 @@ async function main() {
         redirectUris: (client.redirect_uris || []) as Prisma.InputJsonValue,
         grantTypes: (client.grant_types || []) as Prisma.InputJsonValue,
         responseTypes: (client.response_types || []) as Prisma.InputJsonValue,
-        tokenEndpointAuthMethod: String(client.token_endpoint_auth_method || 'none'),
+        tokenEndpointAuthMethod: tokenEndpointAuthMethodForClient(
+          Array.isArray(client.grant_types) ? client.grant_types.map(String) : [],
+          typeof client.token_endpoint_auth_method === 'string' ? client.token_endpoint_auth_method : undefined,
+        ),
         jwks: client.jwks as Prisma.InputJsonValue | undefined,
         tenantBindings: (client.tenant_bindings || []) as Prisma.InputJsonValue,
         permissions: (client.permissions || []) as Prisma.InputJsonValue,

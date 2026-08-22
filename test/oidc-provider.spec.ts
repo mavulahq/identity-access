@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { exportJWK, generateKeyPair } from 'jose';
-import { createOidcProvider } from '../src/oidc.provider.js';
+import { clientResourceAudiences, createOidcProvider } from '../src/oidc.provider.js';
 
 test('publishes OIDC discovery and a public JWKS with PKCE and revocation', async () => {
   const reservation = createServer();
@@ -33,6 +33,8 @@ test('publishes OIDC discovery and a public JWKS with PKCE and revocation', asyn
     assert.equal(jwks.keys.length, 1);
     assert.equal(jwks.keys[0].kid, 'test-key');
     assert.equal(jwks.keys[0].d, undefined);
+    assert.deepEqual(clientResourceAudiences({ resource_audiences: ['urn:mavula:ledger-core'] }), ['urn:mavula:ledger-core']);
+    assert.deepEqual(clientResourceAudiences({ resourceAudiences: ['urn:mavula:workbench'] }), ['urn:mavula:workbench']);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

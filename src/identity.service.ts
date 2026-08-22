@@ -16,6 +16,13 @@ interface TenantBinding {
   branch_id?: string;
 }
 
+export function tokenEndpointAuthMethodForClient(grantTypes: string[], configured?: string): string {
+  if (grantTypes.includes('client_credentials')) {
+    return 'private_key_jwt';
+  }
+  return configured || 'none';
+}
+
 @Injectable()
 export class IdentityService {
   constructor(private readonly prisma: PrismaService) {}
@@ -135,13 +142,15 @@ export class IdentityService {
   }
 
   private providerClient(client: OAuthClient) {
+    const grantTypes = this.array<string>(client.grantTypes);
     return {
       client_id: client.id,
       client_name: client.name,
       redirect_uris: this.array<string>(client.redirectUris),
-      grant_types: this.array<string>(client.grantTypes),
+      grant_types: grantTypes,
       response_types: this.array<string>(client.responseTypes),
-      token_endpoint_auth_method: client.tokenEndpointAuthMethod,
+      token_endpoint_auth_method: tokenEndpointAuthMethodForClient(grantTypes, client.tokenEndpointAuthMethod),
+      id_token_signed_response_alg: 'PS256',
       jwks: client.jwks || undefined,
       resource_audiences: this.array<string>(client.resourceAudiences),
     };
