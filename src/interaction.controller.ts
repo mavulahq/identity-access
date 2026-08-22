@@ -56,17 +56,16 @@ export class InteractionController {
     if (details.prompt.name === 'login') {
       const remoteAddress = String(req.ip || req.socket?.remoteAddress || 'unknown');
       const email = (body.email || '').trim().toLowerCase();
-      const attemptKey = `${remoteAddress}:${email}`;
-      this.loginRateLimiter.assertAllowed(attemptKey);
+      this.loginRateLimiter.assertAllowed(remoteAddress, email);
       const identity = await this.identities.authenticate(
         email,
         body.password || '',
         body.institution_id || undefined,
       ).catch((error) => {
-        this.loginRateLimiter.recordFailure(attemptKey);
+        this.loginRateLimiter.recordFailure(remoteAddress, email);
         throw error;
       });
-      this.loginRateLimiter.clear(attemptKey);
+      this.loginRateLimiter.clear(email);
       return this.provider.interactionFinished(
         req,
         res,
